@@ -5,28 +5,47 @@ import matplotlib.pyplot as plt
 
 
 ###################################################################
-###                         Section 1.2                         ###
+###                    Notebook 1. Section 3                    ###
 ###################################################################
 
 ### Load & Process CSV Files ###
 
-def load_and_process_csv_files(input_dir, var):
+def find_matching_csvs(in_dir, var):
     """
-    Search for and load CSV files containing an exact keyword in their names, clean the data, and return as a list.
+    Searches for CSV files in a directory that contain the exact keyword (var)
+    in their filenames (case-insensitive match on split words).
+
+    Parameters:
+        in_dir (str): Directory to search in.
+        var (str): Keyword to match exactly in filenames.
+
+    Returns:
+        list: Sorted list of matching file paths.
+    """
+    file_paths = sorted([
+        os.path.join(in_dir, f)
+        for f in os.listdir(in_dir)
+        if f.endswith('.csv') and any(
+            part.lower() == var.lower() 
+            for part in f.replace('.', ' ').replace('_', ' ').split()
+        )
+    ])
+    return file_paths
+
+
+def load_and_process_csv_files(in_dir, var):
+    """
+    Load data from matched CSV files, clean the data, and return as a list.
     
     Parameters:
-    - input_dir (str): Directory path containing the CSV files.
+    - in_dir (str): Directory path containing the CSV files.
     - var (str): Exact keyword to search for in the filenames.
     
     Returns:
     - data (list): List of cleaned DataFrames.
     """
-    # Step 1: Search for CSV files containing the exact keyword in their names
-    file_paths = sorted([
-        os.path.join(input_dir, f)
-        for f in os.listdir(input_dir)
-        if f.endswith('.csv') and any(part.lower() == var.lower() for part in f.replace('.', ' ').replace('_', ' ').split())
-    ])
+    
+    file_paths = find_matching_csvs(in_dir, var)
 
     # Step 2: Load and clean CSV files
     data = []
@@ -62,16 +81,17 @@ def load_and_process_csv_files(input_dir, var):
 
 
 ###################################################################
-###                         Section 1.3                         ###
+###                    Notebook 1. Section 4                    ###
 ###################################################################
 
-### Combine Dataframes ###
+### Merge DataFrames Horizontally ###
 
-def combine_multiple_dfs(df_list, freq):
+def merge_multiple_dfs(df_list, freq):
     
     """
-    *** Combines multiple DataFrames into one based on full time stamps ***
-    
+    Merge multiple DataFrames with shared datetime columns into one, 
+    aligned to a complete time range at the specified frequency.
+
     Parameters:
         df_list (list of pd.DataFrame): List of DataFrames, each with a 'datetime' column.
         freq (str): Frequency of time stamps (e.g., "15min").
@@ -80,10 +100,10 @@ def combine_multiple_dfs(df_list, freq):
         pd.DataFrame: A single DataFrame with all merged data on a uniform time index.
     """
     
-    # Step 1: Ensure datetime column is in datetime64[ns] format and drop duplicates
+    # Step 1: Convert datetime column to datetime64[ns] format and drop duplicates
     cleaned_dfs = []
     for df in df_list:
-        df['datetime'] = pd.to_datetime(df['datetime'], errors='coerce')  # Ensure datetime format
+        df['datetime'] = pd.to_datetime(df['datetime'])
         cleaned_df = df.drop_duplicates(subset='datetime').reset_index(drop=True)
         cleaned_dfs.append(cleaned_df)
     
@@ -108,6 +128,74 @@ def combine_multiple_dfs(df_list, freq):
     return merged_df
 
 
+
+###################################################################
+###                    Notebook 1. Section 5                    ###
+###################################################################
+
+### Concatenate DataFrames Vertically ###
+
+def concat_dfs(in_dir, var):
+    """
+    Load data from matched CSV files, aligns their column order, and combines them into a single DataFrame.
+
+    Parameters:
+        in_dir (str): Directory to search for CSV files.
+        var (str): Keyword to match exactly (case-insensitive) in file names.
+
+    Returns:
+        pd.DataFrame: Combined DataFrame with consistent columns and unique datetime entries.
+    """
+    
+    file_paths = find_matching_csvs(in_dir, var)
+
+    # Step 2: Load those CSV files into a list
+    dfs = [pd.read_csv(file, low_memory=False) for file in file_paths]
+
+    if not dfs:
+        return pd.DataFrame()  # Return empty DataFrame if no files matched
+
+    # Align column order of all DataFrames in dfs with the first one
+    dfs = [df[dfs[0].columns] for df in dfs]
+
+    # Step 3: Combine all DataFrames and drop duplicate timestamps, if any
+    df_combined = pd.concat(dfs).drop_duplicates(subset="datetime").reset_index(drop=True)
+
+    # Convert datetime column to datetime64[ns] format
+    df_combined["datetime"] = pd.to_datetime(df_combined["datetime"])
+
+    return df_combined
+
+
+
+###################################################################
+###                 Notebook 1. Section 4 & 5                   ###
+###################################################################
+
+### Save File ###
+
+def save_file(data, fname, dname):
+    """
+    Save a data file (data) to a specific location (dname) and filename (fname).
+    
+    Automatically overwrites any existing CSV file with the same name.
+    """
+    # Ensure the directory exists
+    if not os.path.exists(dname):
+        os.mkdir(dname)
+        print(f'Directory {dname} was created.')
+        
+    fpath = os.path.join(dname, fname)
+    
+    # Automatically overwrite the file
+    print(f'Writing file: "{fpath}"')
+    data.to_csv(fpath, index=False)
+
+
+
+###################################################################
+###                   Notebook 2. Section 1.3                   ###
+###################################################################
 
 ### Plot Data ###
 
@@ -158,7 +246,7 @@ def plot_data(df, var, txt="original", fig_path="./"):
 def reshape_merged_df(df):
     
     """
-    *** Reshape a merged DataFrame by converting all columns except 'datetime' into two columns: 'meter_name' and 'meter_reading' ***
+    Reshape a merged DataFrame by converting all columns except 'datetime' into two columns: 'meter_name' and 'meter_reading'.
 
     Parameters:
         df (pd.DataFrame): The merged DataFrame with a 'datetime' column and other meter columns.
@@ -189,32 +277,7 @@ def reshape_merged_df(df):
 
 
 ###################################################################
-###                      Section 1.4 & 2.3                      ###
-###################################################################
-
-### Save File ###
-
-def save_file(data, fname, dname):
-    """
-    Save a data file (data) to a specific location (dname) and filename (fname).
-    
-    Automatically overwrites any existing CSV file with the same name.
-    """
-    # Ensure the directory exists
-    if not os.path.exists(dname):
-        os.mkdir(dname)
-        print(f'Directory {dname} was created.')
-        
-    fpath = os.path.join(dname, fname)
-    
-    # Automatically overwrite the file
-    print(f'Writing file: "{fpath}"')
-    data.to_csv(fpath, index=False)
-
-
-
-###################################################################
-###                         Section 2.1                         ###
+###                  Notebook 2. Section 2.1                    ###
 ###################################################################
 
 ### Handle Meter Issues ###
@@ -259,11 +322,11 @@ def fix_meter_issues(var, filepath, df):
         start_datetime = pd.to_datetime(start_datetime, errors='coerce')
         end_datetime = pd.to_datetime(end_datetime, errors='coerce')
 
-        # If start_datetime is NaT, assume it is the first available datetime in the dataframe
+        # If start_datetime is NaT, set the start time to the first available datetime in the dataframe
         if pd.isna(start_datetime):
             start_datetime = fixed_df['datetime'].min()
 
-        # If end_datetime is NaT, assume it is the last available datetime in the dataframe
+        # If end_datetime is NaT, set the end time to the last available datetime in the dataframe
         if pd.isna(end_datetime):
             end_datetime = fixed_df['datetime'].max()
 
@@ -287,14 +350,14 @@ def fix_meter_issues(var, filepath, df):
 
 
 ###################################################################
-###                         Section 2.2                         ###
+###                  Notebook 2. Section 2.2                    ###
 ###################################################################
 
 ### Data Cleaning and Linear Interpolation ###
 
 def clean_and_interpolate(column, window, flags):
     """
-    *** Clean and Interpolate ***
+    Clean data errors and do linear interpolation.
     
     Input Args:
     column: a column in a pandas dataframe
@@ -356,9 +419,10 @@ def conditional_round(x):
     """
     return round(x, 2) if (x * 10) % 10 != 0 else round(x, 1)  
 
+
 def reshape_interpolated_data(df, interpolation_flags):
     """
-    *** Combine df and interpolation_flags and Reshape ***   
+    Reshape the dataframe and merge with interpolation_flags. 
     
     Input Args:
     df: a pandas dataframe
@@ -411,14 +475,14 @@ def reshape_interpolated_data(df, interpolation_flags):
 
 
 ###################################################################
-###                         Section 3.1                         ###
+###                  Notebook 2. Section 3.1                    ###
 ###################################################################
 
 ### Calculate Interval ###
 
 def calculate_delta_df(df, freq):
     """
-    *** Calculate delta_df and Clean data ***
+    Calculate delta_df and Clean data.
     
     Input Args:
     df: a pandas dataframe.
@@ -481,7 +545,7 @@ def calculate_delta_df(df, freq):
 def reshape_delta_df(df, var):
     
     """
-    *** Reshape a merged DataFrame by converting all columns except 'datetime' into two columns: 'meter_name' and 'meter_reading' ***
+    Reshape a merged DataFrame by converting all columns except 'datetime' into two columns: 'meter_name' and 'meter_reading'.
 
     Parameters:
         df (pd.DataFrame): The merged DataFrame with a 'datetime' column and other meter columns.
@@ -507,6 +571,9 @@ def reshape_delta_df(df, var):
 
     # Apply conditional rounding to the ValueName column
     reshaped_delta_df[ValueName] = reshaped_delta_df[ValueName].apply(conditional_round)     
+    
+    # Replace 0 value with NaN missing value
+    reshaped_delta_df[ValueName] = reshaped_delta_df[ValueName].replace(0, np.nan)
     
     # Ensure the 'datetime' column remains in the correct datetime format
     reshaped_delta_df['datetime'] = pd.to_datetime(reshaped_delta_df['datetime'])
